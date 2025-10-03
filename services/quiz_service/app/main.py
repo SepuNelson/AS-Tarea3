@@ -3,11 +3,10 @@ import random
 
 app = FastAPI(
     title="Quiz Service",
-    description="Servicio auxiliar que entrega preguntas aleatorias",
+    description="Servicio auxiliar que entrega una pregunta aleatoria",
     version="1.0.0"
 )
 
-# Base de preguntas (puedes ir ampliando la lista)
 QUESTIONS = [
     "Revisa si este código es correcto y corrígelo: print('Hola Mundo\");",
     "Completa este código en Python para que sume dos números ingresados por el usuario: a = int(input('Ingresa un número: ')); b = int(input('Ingresa otro número: '))",
@@ -17,11 +16,9 @@ QUESTIONS = [
 ]
 
 @app.get("/questions")
-def get_questions(n: int = 1):
+def get_questions():
     """
-    Devuelve n preguntas aleatorias.
-    - n: número de preguntas solicitadas (máximo las disponibles).
+    Devuelve una pregunta aleatoria (Simula una pregunta del Cliente).
     """
-    n = min(n, len(QUESTIONS))
-    selected = random.sample(QUESTIONS, n)
-    return {"questions": selected}
+    selected = random.choice(QUESTIONS)
+    return {"question": selected}

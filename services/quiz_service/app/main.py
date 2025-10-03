@@ -17,11 +17,10 @@ QUESTIONS = [
 ]
 
 @app.get("/questions")
-def get_questions(n: int = 1):
+def get_questions():
     """
     Devuelve n preguntas aleatorias.
     - n: número de preguntas solicitadas (máximo las disponibles).
     """
-    n = min(n, len(QUESTIONS))
-    selected = random.sample(QUESTIONS, n)
+    selected = random.sample(QUESTIONS)
     return {"questions": selected}

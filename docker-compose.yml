@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  quiz_service:
+    build: ./services/quiz_service
+    container_name: quiz_service
+    ports:
+      - "8000:8000"
+    networks:
+      - micro_net
+
+networks:
+  micro_net:
+    driver: bridge

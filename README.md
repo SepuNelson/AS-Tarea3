@@ -17,6 +17,14 @@ La documentación interactiva (Swagger UI) está disponible en:
 
 ---
 
+### ⚙️ Servicio Chatbot de Programación
+Este microservicio está desarrollado con **FastAPI**.  
+La documentación interactiva (Swagger UI) está disponible en:  
+
+🔗 **[http://localhost:8001/docs](http://localhost:8001/docs)**
+
+---
+
 ### 🐳 Ejecución con Docker Compose
 Para construir y levantar los servicios:
 

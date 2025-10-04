@@ -1,6 +1,6 @@
-# 📝 AS - Tarea 3
+## 📝 AS - Tarea 3
 
-## 👥 Integrantes
+### 👥 Integrantes
 | Nombre              | Rol      |
 |---------------------|----------------|
 | Ignacio Álvarez     | 202073582-4    |
@@ -9,7 +9,7 @@
 
 ---
 
-## ⚙️ Servicio Auxiliar
+### ⚙️ Servicio Auxiliar
 Este microservicio está desarrollado con **FastAPI**.  
 La documentación interactiva (Swagger UI) está disponible en:  
 
@@ -17,7 +17,7 @@ La documentación interactiva (Swagger UI) está disponible en:
 
 ---
 
-## 🐳 Ejecución con Docker Compose
+### 🐳 Ejecución con Docker Compose
 Para construir y levantar los servicios:
 
 ```bash

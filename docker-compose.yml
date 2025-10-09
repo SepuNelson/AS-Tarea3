@@ -1,23 +1,53 @@
-version: "3.9"
-
 services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672" 
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672" 
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+    networks:
+      - micro_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   quiz_service:
     build: ./services/quiz_service
     container_name: quiz_service
     ports:
-      - "8000:8000"
+      - "${QUIZ_SERVICE_PORT:-8000}:8000"
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
     networks:
       - micro_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     
   chatbot_service:
     build: ./services/chatbot_service
     container_name: chatbot_service
     ports: 
-      - "8001:8001"
-    env_file:
-      - .env
+      - "${CHATBOT_SERVICE_PORT:-8001}:8001"
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     networks:
       - micro_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
 networks:
   micro_net:

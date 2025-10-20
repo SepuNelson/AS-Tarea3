@@ -1,10 +1,7 @@
 import os
 import time
 import logging
-<<<<<<< HEAD
 import uuid
-=======
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
@@ -32,11 +29,7 @@ RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
-<<<<<<< HEAD
 QUEUE_NAME = os.getenv("QUESTIONS_QUEUE", "quiz_questions")
-=======
-QUEUE_NAME = "quiz_questions"
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 
 
 class QuestionRequest(BaseModel):
@@ -48,10 +41,7 @@ class QuestionResponse(BaseModel):
     """Modelo de respuesta"""
     message: str
     question: str
-<<<<<<< HEAD
     question_id: str
-=======
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 
 
 def get_rabbitmq_connection():
@@ -87,7 +77,6 @@ def publish_question(question: str):
         connection = get_rabbitmq_connection()
         channel = connection.channel()
         
-<<<<<<< HEAD
         # No necesitamos declarar la cola aquí, ya está en definitions.json
         # Pero lo hacemos por seguridad (es idempotente)
         channel.queue_declare(queue=QUEUE_NAME, durable=True, passive=True)
@@ -103,20 +92,12 @@ def publish_question(question: str):
         })
         
         # Publicar el mensaje
-=======
-        # Declarar la cola (idempotente)
-        channel.queue_declare(queue=QUEUE_NAME, durable=True)
-        
-        # Publicar el mensaje
-        message = json.dumps({"question": question})
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
         channel.basic_publish(
             exchange='',
             routing_key=QUEUE_NAME,
             body=message,
             properties=pika.BasicProperties(
                 delivery_mode=2,  # Hacer el mensaje persistente
-<<<<<<< HEAD
                 content_type='application/json'
             )
         )
@@ -126,28 +107,17 @@ def publish_question(question: str):
         
         return question_id
         
-=======
-            )
-        )
-        
-        logger.info(f"Pregunta publicada en la cola: {question}")
-        connection.close()
-        
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
     except Exception as e:
         logger.error(f"Error al publicar mensaje: {e}")
         raise HTTPException(status_code=500, detail=f"Error al publicar pregunta: {str(e)}")
 
 
-<<<<<<< HEAD
 @app.get("/health")
 async def health() -> dict:
     """Health check endpoint"""
     return {"status": "ok", "service": "quiz_service"}
 
 
-=======
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 @app.get("/questions", response_model=QuestionResponse)
 def get_questions():
     """
@@ -157,7 +127,6 @@ def get_questions():
     selected = random.choice(QUESTIONS)
     
     try:
-<<<<<<< HEAD
         question_id = publish_question(selected)
         return QuestionResponse(
             message="Pregunta enviada al servicio de chatbot para procesamiento",
@@ -182,12 +151,6 @@ def publish_question_endpoint():
             message="Pregunta enviada al servicio de chatbot para procesamiento",
             question=selected,
             question_id=question_id
-=======
-        publish_question(selected)
-        return QuestionResponse(
-            message="Pregunta enviada al servicio de chatbot para procesamiento",
-            question=selected
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -51,16 +51,11 @@ Mensaje del usuario:
 {mensaje}
 """
 
-<<<<<<< HEAD
 # Configuración RabbitMQ
-=======
-# Configuración RabbitMQ desde variables de entorno
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
-<<<<<<< HEAD
 
 # colas
 QUESTIONS_QUEUE = os.getenv("QUESTIONS_QUEUE", "quiz_questions")
@@ -71,9 +66,6 @@ FAILED_RESPONSES_QUEUE = os.getenv("FAILED_RESPONSES_QUEUE", "failed_responses_q
 # Configuración DLX
 DLX_EXCHANGE = os.getenv("DLX_EXCHANGE", "dlx_exchange")
 MAX_RETRIES = 3
-=======
-QUEUE_NAME = "quiz_questions"
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 
 
 class ChatRequest(BaseModel):
@@ -115,7 +107,6 @@ def process_question_with_gemini(question: str) -> str:
         
         reply = (response.text or "").strip() if hasattr(response, "text") else ""
         if not reply:
-<<<<<<< HEAD
             # Considerar una respuesta vacía como un error para que sea reintentado
             raise ValueError("El modelo no entregó contenido en la respuesta.")
         
@@ -125,14 +116,6 @@ def process_question_with_gemini(question: str) -> str:
         # Esto es crucial para que el callback active la lógica de reintentos/DLX
         logger.error(f"Error al procesar con Gemini: {e}")
         raise
-=======
-            return "El modelo no entregó contenido en la respuesta."
-        
-        return reply
-    except Exception as e:
-        logger.error(f"Error al procesar con Gemini: {e}")
-        return f"Error al procesar la pregunta: {str(e)}"
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 
 
 def get_rabbitmq_connection():
@@ -162,7 +145,6 @@ def get_rabbitmq_connection():
                 raise
 
 
-<<<<<<< HEAD
 def get_retry_count(properties) -> int:
     """Obtiene el número de reintentos del mensaje desde los headers"""
     if properties.headers and 'x-retry-count' in properties.headers:
@@ -220,21 +202,6 @@ def callback(ch, method, properties, body):
         logger.info("-" * 80)
         
         # Procesar con Gemini
-=======
-def callback(ch, method, properties, body):
-    """Callback que se ejecuta cuando llega un mensaje de la cola"""
-    try:
-        message_data = json.loads(body)
-        question = message_data.get("question", "")
-        
-        logger.info("=" * 80)
-        logger.info("NUEVO MENSAJE RECIBIDO DE LA COLA")
-        logger.info("=" * 80)
-        logger.info(f"PREGUNTA: {question}")
-        logger.info("-" * 80)
-        
-        # Procesar la pregunta con Gemini
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
         logger.info("Procesando con Gemini AI...")
         response = process_question_with_gemini(question)
         
@@ -242,7 +209,6 @@ def callback(ch, method, properties, body):
         logger.info("-" * 80)
         logger.info(response)
         logger.info("=" * 80)
-<<<<<<< HEAD
         
         # Publicar respuesta como evento
         publish_response_event(ch, question, response, question_id)
@@ -288,21 +254,6 @@ def callback(ch, method, properties, body):
         
         logger.info("=" * 80)
         logger.info("")
-=======
-        logger.info("MENSAJE PROCESADO EXITOSAMENTE")
-        logger.info("=" * 80)
-        logger.info("")  # Línea en blanco para separar mensajes
-        
-        # Confirmar el mensaje
-        ch.basic_ack(delivery_tag=method.delivery_tag)
-        
-    except Exception as e:
-        logger.error("=" * 80)
-        logger.error(f"ERROR AL PROCESAR MENSAJE: {e}")
-        logger.error("=" * 80)
-        # No hacer ack para reintentar el mensaje
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
 
 
 def start_consumer():
@@ -311,20 +262,14 @@ def start_consumer():
         connection = get_rabbitmq_connection()
         channel = connection.channel()
         
-<<<<<<< HEAD
         # Las colas ya están declaradas en definitions.json
         # Pero verificamos que existan (passive=True no crea, solo verifica)
         channel.queue_declare(queue=QUESTIONS_QUEUE, durable=True, passive=True)
-=======
-        # Declarar la cola (idempotente)
-        channel.queue_declare(queue=QUEUE_NAME, durable=True)
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
         
         # Configurar QoS para procesar un mensaje a la vez
         channel.basic_qos(prefetch_count=1)
         
         # Configurar el consumidor
-<<<<<<< HEAD
         channel.basic_consume(queue=QUESTIONS_QUEUE, on_message_callback=callback, auto_ack=False)
         
         logger.info("=" * 80)
@@ -334,14 +279,6 @@ def start_consumer():
         logger.info(f"Publicando en: {RESPONSES_QUEUE}")
         logger.info(f"DLX: {DLX_EXCHANGE}")
         logger.info(f"Max reintentos: {MAX_RETRIES}")
-=======
-        channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
-        
-        logger.info("=" * 80)
-        logger.info("CONSUMIDOR RABBITMQ INICIADO CORRECTAMENTE")
-        logger.info(f"Esperando mensajes en la cola: '{QUEUE_NAME}'")
-        logger.info("Presiona Ctrl+C para detener")
->>>>>>> 87b4d782e874dbafc1df7b2d10f9e91cfda5b8ac
         logger.info("=" * 80)
         logger.info("")
         

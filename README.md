@@ -55,19 +55,6 @@ Este proyecto implementa una arquitectura de microservicios resiliente utilizand
 
 ---
 
-## ✨ Características Clave de la Arquitectura
-
-Esta implementación va más allá de un simple productor/consumidor, incorporando patrones avanzados para garantizar la robustez del sistema:
-
--   ✅ **Configuración Declarativa:** Toda la topología de RabbitMQ (colas, exchanges, bindings, DLX) se define en `rabbitmq/definitions.json`, garantizando un estado consistente al iniciar.
--   ✅ **Persistencia Total:** Tanto los mensajes como las colas son **durables**, sobreviviendo a reinicios del broker.
--   ✅ **Confirmación Manual (ACK/NACK):** El consumidor confirma los mensajes solo después de procesarlos exitosamente, asegurando que ningún mensaje se pierda por fallos del servicio.
--   ✅ **Lógica de Reintentos:** Un mecanismo de reintentos controlado por el consumidor permite recuperarse de errores transitorios sin perder mensajes.
--   ✅ **Dead Letter Exchange (DLX):** Los mensajes que fallan persistentemente se mueven a una cola de "letras muertas" para análisis, evitando que bloqueen el procesamiento principal.
--   ✅ **Calidad de Servicio (QoS):** El consumidor está configurado con `prefetch_count=1`, procesando un solo mensaje a la vez para evitar sobrecarga y manejar el flujo de manera ordenada.
--   ✅ **Conexiones Resilientes:** Ambos servicios incluyen lógica para reintentar la conexión con RabbitMQ al iniciar.
-
----
 
 ## 🚀 Inicio Rápido
 
@@ -156,13 +143,6 @@ AS-Tarea3/
 │   └── chatbot_service/         # Consumidor con lógica de reintentos y DLX
 └── ...
 ```
-
-### Tecnologías Utilizadas
-- **FastAPI**: Framework web para los servicios.
-- **RabbitMQ**: Message broker para comunicación asíncrona.
-- **Pika**: Cliente Python para RabbitMQ.
-- **Google Gemini AI**: Procesamiento de lenguaje natural.
-- **Docker & Docker Compose**: Orquestación de contenedores.
 
 ### Reiniciar servicios
 Para detener todos los contenedores y eliminar volúmenes anónimos:

@@ -1,16 +1,26 @@
 import logging
+import os
+import time
+import json
+import threading
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, status
 from google import genai
 from pydantic import BaseModel
+import pika
 
+# Configurar logging para que muestre mensajes INFO
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Chatbot Service",
-    description="Wrapper de FastAPI para consumir el modelo Gemini",
-    version="1.0.0",
+    description="Wrapper de FastAPI para consumir el modelo Gemini con RabbitMQ y DLX",
+    version="2.0.0",
 )
 
 PROMPT_TEMPLATE = """Actúa como un asistente experto en programación. Recibirás un mensaje de un usuario que puede contener una pregunta técnica, una solicitud de ejemplo de código, o una duda sobre un concepto de programación.
@@ -41,6 +51,22 @@ Mensaje del usuario:
 {mensaje}
 """
 
+# Configuración RabbitMQ
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
+
+# colas
+QUESTIONS_QUEUE = os.getenv("QUESTIONS_QUEUE", "quiz_questions")
+RESPONSES_QUEUE = os.getenv("RESPONSES_QUEUE", "gemini_responses")
+FAILED_QUESTIONS_QUEUE = os.getenv("FAILED_QUESTIONS_QUEUE", "failed_questions_queue")
+FAILED_RESPONSES_QUEUE = os.getenv("FAILED_RESPONSES_QUEUE", "failed_responses_queue")
+
+# Configuración DLX
+DLX_EXCHANGE = os.getenv("DLX_EXCHANGE", "dlx_exchange")
+MAX_RETRIES = 3
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -56,7 +82,7 @@ def get_genai_client() -> genai.Client:
 
     try:
         return genai.Client()
-    except Exception as exc:  # pragma: no cover - defensive logging
+    except Exception as exc:
         logger.exception("Failed to create Gemini client")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,6 +94,209 @@ def build_prompt(message: str) -> str:
     """Construct the instruction prompt expected by Gemini."""
 
     return PROMPT_TEMPLATE.format(mensaje=message.strip())
+
+
+def process_question_with_gemini(question: str) -> str:
+    """Procesa una pregunta usando la API de Gemini"""
+    try:
+        prompt = build_prompt(question)
+        response = get_genai_client().models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        
+        reply = (response.text or "").strip() if hasattr(response, "text") else ""
+        if not reply:
+            # Considerar una respuesta vacía como un error para que sea reintentado
+            raise ValueError("El modelo no entregó contenido en la respuesta.")
+        
+        return reply
+    except Exception as e:
+        # Registrar el error y RE-LANZAR la excepción
+        # Esto es crucial para que el callback active la lógica de reintentos/DLX
+        logger.error(f"Error al procesar con Gemini: {e}")
+        raise
+
+
+def get_rabbitmq_connection():
+    """Establece conexión con RabbitMQ con reintentos"""
+    max_retries = 5
+    retry_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+            parameters = pika.ConnectionParameters(
+                host=RABBITMQ_HOST,
+                port=RABBITMQ_PORT,
+                credentials=credentials,
+                heartbeat=600,
+                blocked_connection_timeout=300
+            )
+            connection = pika.BlockingConnection(parameters)
+            logger.info(f"Conexión establecida con RabbitMQ en {RABBITMQ_HOST}:{RABBITMQ_PORT}")
+            return connection
+        except Exception as e:
+            logger.warning(f"Intento {attempt + 1}/{max_retries} falló: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                logger.error("No se pudo conectar a RabbitMQ después de varios intentos")
+                raise
+
+
+def get_retry_count(properties) -> int:
+    """Obtiene el número de reintentos del mensaje desde los headers"""
+    if properties.headers and 'x-retry-count' in properties.headers:
+        return properties.headers['x-retry-count']
+    return 0
+
+
+def publish_response_event(channel, question: str, response: str, question_id: str):
+    """Publica la respuesta de Gemini como evento en la cola de respuestas"""
+    try:
+        message_body = {
+            "question_id": question_id,
+            "question": question,
+            "response": response,
+            "timestamp": time.time(),
+            "processed_by": "chatbot_service"
+        }
+        
+        channel.basic_publish(
+            exchange='',
+            routing_key=RESPONSES_QUEUE,
+            body=json.dumps(message_body),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # Mensaje persistente
+                content_type='application/json'
+            )
+        )
+        
+        logger.info("=" * 80)
+        logger.info("EVENTO DE RESPUESTA PUBLICADO")
+        logger.info("=" * 80)
+        logger.info(f"Cola: {RESPONSES_QUEUE}")
+        logger.info(f"Question ID: {question_id}")
+        logger.info(f"Respuesta: {len(response)} caracteres")
+        logger.info("=" * 80)
+        
+    except Exception as e:
+        logger.error(f"Error al publicar respuesta: {e}")
+        raise
+def callback(ch, method, properties, body):
+    """Callback que se ejecuta cuando llega un mensaje de la cola de preguntas"""
+    retry_count = get_retry_count(properties)
+    
+    try:
+        message_data = json.loads(body)
+        question = message_data.get("question", "")
+        question_id = message_data.get("question_id", "unknown")
+        
+        logger.info("=" * 80)
+        logger.info("NUEVO MENSAJE RECIBIDO")
+        logger.info("=" * 80)
+        logger.info(f"Question ID: {question_id}")
+        logger.info(f"Reintento: {retry_count}/{MAX_RETRIES}")
+        logger.info(f"PREGUNTA: {question}")
+        logger.info("-" * 80)
+        
+        # Procesar con Gemini
+        logger.info("Procesando con Gemini AI...")
+        response = process_question_with_gemini(question)
+        
+        logger.info("RESPUESTA DE GEMINI:")
+        logger.info("-" * 80)
+        logger.info(response)
+        logger.info("=" * 80)
+        
+        # Publicar respuesta como evento
+        publish_response_event(ch, question, response, question_id)
+        
+        # Confirmar mensaje procesado
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+        logger.info("MENSAJE PROCESADO (ACK)")
+        logger.info("=" * 80)
+        logger.info("")
+        
+    except Exception as e:
+        logger.error("=" * 80)
+        logger.error(f"ERROR: {e}")
+        logger.error("=" * 80)
+        
+        # Verificar si se debe reintentar o enviar a DLX
+        if retry_count < MAX_RETRIES:
+            logger.warning(f"Reintentando... ({retry_count + 1}/{MAX_RETRIES})")
+            
+            # Crear headers con contador incrementado
+            headers = properties.headers or {}
+            headers['x-retry-count'] = retry_count + 1
+            
+            # Republicar mensaje con nuevo contador
+            ch.basic_publish(
+                exchange='',
+                routing_key=QUESTIONS_QUEUE,
+                body=body,
+                properties=pika.BasicProperties(
+                    delivery_mode=2,
+                    headers=headers,
+                    content_type='application/json'
+                )
+            )
+            
+            # Rechazar mensaje original (no requeue porque ya lo republicamos)
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+            logger.info(f"Mensaje reencolado (intento {retry_count + 1})")
+        else:
+            # Máximo de reintentos alcanzado, enviar a DLX
+            logger.error(f"Máximo de reintentos. Enviando a DLX...")
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        
+        logger.info("=" * 80)
+        logger.info("")
+
+
+def start_consumer():
+    """Inicia el consumidor de RabbitMQ en un hilo separado"""
+    try:
+        connection = get_rabbitmq_connection()
+        channel = connection.channel()
+        
+        # Las colas ya están declaradas en definitions.json
+        # Pero verificamos que existan (passive=True no crea, solo verifica)
+        channel.queue_declare(queue=QUESTIONS_QUEUE, durable=True, passive=True)
+        
+        # Configurar QoS para procesar un mensaje a la vez
+        channel.basic_qos(prefetch_count=1)
+        
+        # Configurar el consumidor
+        channel.basic_consume(queue=QUESTIONS_QUEUE, on_message_callback=callback, auto_ack=False)
+        
+        logger.info("=" * 80)
+        logger.info("CONSUMIDOR RABBITMQ INICIADO")
+        logger.info("=" * 80)
+        logger.info(f"Escuchando: {QUESTIONS_QUEUE}")
+        logger.info(f"Publicando en: {RESPONSES_QUEUE}")
+        logger.info(f"DLX: {DLX_EXCHANGE}")
+        logger.info(f"Max reintentos: {MAX_RETRIES}")
+        logger.info("=" * 80)
+        logger.info("")
+        
+        channel.start_consuming()
+        
+    except Exception as e:
+        logger.error(f"Error en el consumidor: {e}")
+        time.sleep(5)
+        # Reintentar
+        start_consumer()
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicia el consumidor de RabbitMQ cuando la aplicación arranca"""
+    consumer_thread = threading.Thread(target=start_consumer, daemon=True)
+    consumer_thread.start()
+    logger.info("Hilo consumidor de RabbitMQ iniciado")
 
 
 @app.get("/health")
@@ -94,7 +323,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
     except HTTPException:
         raise
-    except Exception as exc:  # pragma: no cover - depends on external API
+    except Exception as exc:  
         logger.exception("Gemini request failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

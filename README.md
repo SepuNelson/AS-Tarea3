@@ -9,38 +9,19 @@
 
 ---
 
-## 🏗️ Arquitectura Mejorada con RabbitMQ
+## 🏗️ Arquitectura
 
-Este proyecto implementa una arquitectura de microservicios resiliente utilizando **RabbitMQ** como message broker, con un enfoque en el manejo de errores a través de **Dead Letter Exchanges (DLX)** y una configuración declarativa.
+Este proyecto implementa una arquitectura de microservicios utilizando **RabbitMQ** como message broker, con un enfoque en el manejo de errores a través de **Dead Letter Exchanges (DLX)** y una configuración declarativa.
 
-```
-                                                  ┌──────────────────┐
-                                     ┌───────────▶│   Gemini API     │
-                                     │            └──────────────────┘
-                                     │                     ▲
-┌─────────────────┐       ┌─────────────────┐      ┌──────────────────┐
-│                 │       │                 │      │                  │
-│  Quiz Service   ├──────▶│    RabbitMQ     ├─────▶│ Chatbot Service  │
-│   (Productor)   │       │ Message Broker  │      │   (Consumidor)   │
-│                 │       │                 │      │                  │
-└─────────────────┘       └─────────────────┘      └──────────────────┘
-       │                          │      │                    │
-       └──────────────────────────┘      │                    ▼
-                                         │      ┌─────────────────────────┐
-                                         ├─────▶│ gemini_responses (Cola) │
-                                         │      └─────────────────────────┘
-                                         │
-                               ┌─────────┴─────────┐
-                               │ Dead Letter Logic │
-                               └─────────┬─────────┘
-                                         ▼
-                         ┌─────────────────────────────┐
-                         │ failed_questions_queue (DLQ)│
-                         └─────────────────────────────┘
-```
+Diagrama General   
+<img width="920" height="418" alt="Diagrama de Arquitectura" src="https://github.com/user-attachments/assets/1bf85f44-8e11-4d72-805b-a61eefe631aa" />
+
+
+Diagrama Chatbot Programación   
+<img width="502" height="432" alt="Diagrama Microservicio drawio" src="https://github.com/user-attachments/assets/ac25a5f2-aba7-4136-bb2f-bc1b4ce6be66" />
 
 ### Flujo de Mensajes Detallado:
-1.  **Producción:** `Quiz Service` genera una pregunta con un ID único y la publica en la cola `quiz_questions`.
+1.  **Producción:** `Quiz Service` (servicio auxiliar) genera una pregunta con un ID único y la publica en la cola `quiz_questions`.
 2.  **Consumo:** `Chatbot Service` consume un mensaje a la vez de `quiz_questions`.
 3.  **Procesamiento Exitoso:**
     *   El mensaje se procesa con la API de Gemini.
@@ -108,48 +89,3 @@ La interfaz web es clave para observar el comportamiento del sistema.
 🔗 **[http://localhost:15672](http://localhost:15672)**
 -   **Usuario:** `guest`
 -   **Contraseña:** `guest`
-
-**¿Qué observar en la UI?**
-1.  **Ir a la pestaña "Queues"**:
-    -   `quiz_questions`: Deberías ver mensajes entrando y saliendo rápidamente. Si se acumulan, el `chatbot_service` podría tener problemas.
-    -   `gemini_responses`: Aquí se acumulan las respuestas exitosas de Gemini. Puedes inspeccionar el contenido de los mensajes.
-    -   `failed_questions_queue`: Si un mensaje falla todos sus reintentos, aparecerá aquí. Es la cola que debes monitorear para detectar errores persistentes.
-2.  **Analizar el flujo**: Después de llamar a `GET /questions`, observa cómo un mensaje aparece en `quiz_questions`, luego desaparece, y un nuevo mensaje aparece en `gemini_responses` (si todo va bien).
-
-### Ver logs de servicios
-```bash
-# Ver logs de un servicio específico
-docker logs quiz_service
-docker logs chatbot_service
-
-# Ver logs en tiempo real (muy útil para depurar el chatbot)
-docker logs -f chatbot_service
-```
-
----
-
-## 🛠️ Desarrollo
-
-### Estructura del Proyecto
-```
-AS-Tarea3/
-├── docker-compose.yml           # Configuración de servicios y red
-├── .env.example                 # Ejemplo de variables de entorno
-├── rabbitmq/
-│   ├── rabbitmq.conf            # Configuración básica de RabbitMQ
-│   └── definitions.json         # Topología de colas, exchanges y DLX
-├── services/
-│   ├── quiz_service/            # Productor de mensajes
-│   └── chatbot_service/         # Consumidor con lógica de reintentos y DLX
-└── ...
-```
-
-### Reiniciar servicios
-Para detener todos los contenedores y eliminar volúmenes anónimos:
-```bash
-docker-compose down
-```
-Para reconstruir y levantar de nuevo:
-```bash
-docker-compose up --build
-```

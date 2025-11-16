@@ -2,3 +2,4 @@ fastapi
 google-genai
 uvicorn
 pika
+httpx

@@ -4,6 +4,8 @@ import time
 import json
 import threading
 from functools import lru_cache
+import httpx
+import uuid
 
 from fastapi import FastAPI, HTTPException, status
 from google import genai
@@ -66,6 +68,10 @@ FAILED_RESPONSES_QUEUE = os.getenv("FAILED_RESPONSES_QUEUE", "failed_responses_q
 # Configuración DLX
 DLX_EXCHANGE = os.getenv("DLX_EXCHANGE", "dlx_exchange")
 MAX_RETRIES = 3
+
+# Configuración del servicio de mensajes
+MESSAGES_SERVICE_URL = os.getenv("MESSAGES_SERVICE_URL", "http://localhost:3000")
+CHATBOT_USER_ID = os.getenv("CHATBOT_USER_ID", "00000000-0000-0000-0000-000000000000") # UUID para el bot
 
 
 class ChatRequest(BaseModel):
@@ -152,8 +158,56 @@ def get_retry_count(properties) -> int:
     return 0
 
 
+def send_response_to_thread(thread_id: str, user_id: str, response: str):
+    """Envía la respuesta directamente como mensaje al thread usando la API del servicio de mensajes"""
+    try:
+        # Validar que thread_id sea un UUID válido
+        thread_uuid = uuid.UUID(thread_id)
+        bot_uuid = uuid.UUID(CHATBOT_USER_ID)
+        
+        # Preparar el payload
+        payload = {
+            "content": response,
+            "type": "text",
+            "paths": None
+        }
+        
+        # Hacer la llamada HTTP al servicio de mensajes
+        url = f"{MESSAGES_SERVICE_URL}/threads/{thread_uuid}/messages"
+        headers = {
+            "X-User-Id": str(bot_uuid),  # Usar el user_id del bot
+            "Content-Type": "application/json"
+        }
+        
+        logger.info("=" * 80)
+        logger.info("ENVIANDO RESPUESTA AL THREAD")
+        logger.info("=" * 80)
+        logger.info(f"URL: {url}")
+        logger.info(f"Thread ID: {thread_id}")
+        logger.info(f"Respuesta: {len(response)} caracteres")
+        
+        with httpx.Client(timeout=30.0) as client:
+            http_response = client.post(url, json=payload, headers=headers)
+            
+            if http_response.status_code == 201:
+                logger.info("✅ RESPUESTA ENVIADA EXITOSAMENTE AL THREAD")
+                logger.info(f"Status: {http_response.status_code}")
+                logger.info("=" * 80)
+            else:
+                logger.error(f"❌ Error al enviar respuesta: {http_response.status_code}")
+                logger.error(f"Response: {http_response.text}")
+                logger.info("=" * 80)
+                
+    except ValueError as e:
+        logger.error(f"Error: UUID inválido - {e}")
+    except httpx.RequestError as e:
+        logger.error(f"Error de conexión al servicio de mensajes: {e}")
+    except Exception as e:
+        logger.error(f"Error inesperado al enviar respuesta: {e}")
+
+
 def publish_response_event(channel, question: str, response: str, question_id: str):
-    """Publica la respuesta de Gemini como evento en la cola de respuestas"""
+    """Publica la respuesta de Gemini como evento en la cola de respuestas (fallback)"""
     try:
         message_body = {
             "question_id": question_id,
@@ -174,7 +228,7 @@ def publish_response_event(channel, question: str, response: str, question_id: s
         )
         
         logger.info("=" * 80)
-        logger.info("EVENTO DE RESPUESTA PUBLICADO")
+        logger.info("EVENTO DE RESPUESTA PUBLICADO (FALLBACK)")
         logger.info("=" * 80)
         logger.info(f"Cola: {RESPONSES_QUEUE}")
         logger.info(f"Question ID: {question_id}")
@@ -182,25 +236,52 @@ def publish_response_event(channel, question: str, response: str, question_id: s
         logger.info("=" * 80)
         
     except Exception as e:
-        logger.error(f"Error al publicar respuesta: {e}")
+        logger.error(f"Error al publicar respuesta (fallback): {e}")
         raise
+
+
 def callback(ch, method, properties, body):
     """Callback que se ejecuta cuando llega un mensaje de la cola de preguntas"""
     retry_count = get_retry_count(properties)
     
     try:
         message_data = json.loads(body)
-        question = message_data.get("question", "")
-        question_id = message_data.get("question_id", "unknown")
+
+        thread_id = None
+        user_id = None
+        question = None
+        question_id = None
+
+        # Formato 1: Mensaje de INF326-tarea-2-main (viene el objeto message directamente)
+        if "thread_id" in message_data and "content" in message_data:
+            thread_id = str(message_data.get("thread_id", ""))
+            user_id = str(message_data.get("user_id", ""))
+            question = message_data.get("content", "")
+            question_id = str(message_data.get("id", "unknown"))
+        # Formato 2: Mensaje original del quiz_service
+        elif "question" in message_data:
+            question = message_data.get("question", "")
+            question_id = message_data.get("question_id", "unknown")
+        else:
+            # Formato desconocido, intentar un fallback
+            question = str(message_data)
+            question_id = "unknown"
         
         logger.info("=" * 80)
         logger.info("NUEVO MENSAJE RECIBIDO")
         logger.info("=" * 80)
         logger.info(f"Question ID: {question_id}")
+        logger.info(f"Thread ID: {thread_id}")
+        logger.info(f"User ID: {user_id}")
         logger.info(f"Reintento: {retry_count}/{MAX_RETRIES}")
         logger.info(f"PREGUNTA: {question}")
         logger.info("-" * 80)
         
+        if not question:
+            logger.warning("Pregunta vacía, descartando mensaje.")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
         # Procesar con Gemini
         logger.info("Procesando con Gemini AI...")
         response = process_question_with_gemini(question)
@@ -210,8 +291,13 @@ def callback(ch, method, properties, body):
         logger.info(response)
         logger.info("=" * 80)
         
-        # Publicar respuesta como evento
-        publish_response_event(ch, question, response, question_id)
+        # Enviar respuesta directamente al thread si tenemos thread_id
+        if thread_id and user_id:
+            send_response_to_thread(thread_id, user_id, response)
+        else:
+            # Fallback: publicar en cola de respuestas (comportamiento original)
+            logger.warning("No se encontró thread_id/user_id, publicando en cola de respuestas de fallback.")
+            publish_response_event(ch, question, response, question_id)
         
         # Confirmar mensaje procesado
         ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -232,10 +318,13 @@ def callback(ch, method, properties, body):
             headers = properties.headers or {}
             headers['x-retry-count'] = retry_count + 1
             
+            # Usar la cola desde la cual se recibió el mensaje (routing_key del método)
+            retry_queue = method.routing_key if hasattr(method, 'routing_key') and method.routing_key else QUESTIONS_QUEUE
+            
             # Republicar mensaje con nuevo contador
             ch.basic_publish(
                 exchange='',
-                routing_key=QUESTIONS_QUEUE,
+                routing_key=retry_queue,
                 body=body,
                 properties=pika.BasicProperties(
                     delivery_mode=2,

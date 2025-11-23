@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-programming-service
+  namespace: default
+  labels:
+    app: chatbot-programming-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-programming-service
+  template:
+    metadata:
+      labels:
+        app: chatbot-programming-service
+    spec:
+      containers:
+      - name: chatbot-programming-service
+        image: panchodm07/chatbot-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8001
+          protocol: TCP
+        env:
+        - name: RABBITMQ_HOST
+          value: message-broker
+        - name: RABBITMQ_PORT
+          value: "5672"
+        - name: RABBITMQ_USER
+          value: guest
+        - name: RABBITMQ_PASS
+          value: guest
+        - name: QUESTIONS_QUEUE
+          value: messages_service
+        - name: RESPONSES_QUEUE
+          value: gemini_responses
+        - name: FAILED_QUESTIONS_QUEUE
+          value: failed_questions_queue
+        - name: FAILED_RESPONSES_QUEUE
+          value: failed_responses_queue
+        - name: DLX_EXCHANGE
+          value: dlx_exchange
+        envFrom:
+        - secretRef:
+            name: gemini-api-key-chatbot
+        - secretRef:
+            name: chatbot-programacion-integraciones
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-programming-service-svc
+  namespace: default
+  labels:
+    app: chatbot-programming-service
+spec:
+  type: ClusterIP
+  selector:
+    app: chatbot-programming-service
+  ports:
+  - port: 8001
+    targetPort: 8001
+    protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chatbot-programming-service-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chatbot-programming-service
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chatbot-programming-service-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: chatbotprogra.inf326.nursoft.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: chatbot-programming-service-svc
+            port:
+              number: 8001
+  tls:
+  - hosts:
+    - chatbotprogra.inf326.nursoft.dev
+    secretName: chatbot-programming-service-tls

@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-svc-api-gateway  
+spec:
+  type: ClusterIP
+  selector:
+    app: chatbot-svc-api-gateway 
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-svc-api-gateway  
+spec:
+  selector:
+    matchLabels:
+      app: chatbot-svc-api-gateway 
+  template:
+    metadata:
+      labels:
+        app: chatbot-svc-api-gateway 
+    spec:
+      containers:
+        - name: chatbot-svc-api-gateway 
+          image: panchodm07/api-gateway:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: USERS_SERVICE_URL
+              value: "https://users.inf326.nursoft.dev"
+            - name: CHANNELS_SERVICE_URL
+              value: "https://channel-api.inf326.nur.dev"
+            - name: THREADS_SERVICE_URL
+              value: "https://threads.inf326.nursoft.dev"
+            - name: MESSAGES_SERVICE_URL
+              value: "https://messages-service.kroder.dev"
+            - name: FILES_SERVICE_URL
+              value: "http://file-service-134-199-176-197.nip.io"
+            - name: MODERATION_SERVICE_URL
+              value: "https://moderation.inf326.nur.dev"
+            - name: PRESENCE_SERVICE_URL
+              value: "https://presence-134-199-176-197.nip.io"
+            - name: SEARCH_SERVICE_URL
+              value: "https://searchservice.inf326.nursoft.dev"
+            - name: WIKI_BOT_SERVICE_URL
+              value: "https://wikipedia-chatbot-134-199-176-197.nip.io"
+            - name: PROG_BOT_SERVICE_URL
+              value: "https://chatbotprogra.inf326.nursoft.dev"
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: chatbot-programming-api-cert
+spec:
+  secretName: chatbot-programming-api-tls
+  dnsNames:
+  - chatbotprograapi.inf326.nursoft.dev
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chatbot-programming-api-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: chatbotprograapi.inf326.nursoft.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: chatbot-svc-api-gateway
+            port:
+              number: 3000
+  tls:
+  - hosts:
+    - chatbotprograapi.inf326.nursoft.dev
+    secretName: chatbot-programming-api-tls

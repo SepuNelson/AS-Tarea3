@@ -3,3 +3,4 @@ google-genai
 uvicorn
 pika
 httpx
+pytest

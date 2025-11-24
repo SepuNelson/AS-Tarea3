@@ -49,6 +49,11 @@ Diagrama Chatbot Programación
     # Verificar el estado del Chatbot Service
     curl http://localhost:8001/health
     ```
+    
+4. Pruebas de Endpoint:
+    ```bash
+    docker compose run --rm chatbot_service pytest -v
+    ```
 
 ## 🔌 Servicios y Puertos
 

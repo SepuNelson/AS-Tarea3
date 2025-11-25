@@ -29,21 +29,6 @@ npm run build    # compila a producción (dist/)
 npm run preview  # sirve la build localmente
 ```
 
-## Observabilidad y seguridad
-
-- `src/lib/telemetry.ts` deja hook para enviar eventos a OpenTelemetry / Grafana.
-- `apiClient` agrega encabezado `X-App-Client` y gestiona expiración de token.
-- `sanitizeHtml` (DOMPurify) evita XSS al renderizar contenido/bots.
-- Todos los requests usan `useQuery`/`useMutation` con manejo de errores centralizado accesible en UI (toasts o alertas simplificadas).
-- `npm run build` se ejecuta en CI y publica el contenido de `dist/` en un hosting estático detrás del Gateway.
-
-## Próximos pasos sugeridos
-
-- Configurar despliegue automatizado (GitHub Actions/Azure DevOps) que ejecute `npm run build` y suba `dist/` al CDN.
-- Instrumentar `logTelemetry` para enviar métricas reales (Datadog, Grafana Tempo, etc.).
-- Conectar la capa de WebSocket/SSE del Gateway para actualizar canales/hilos/mensajes sin pooling.
-- Añadir pruebas E2E (Playwright/Cypress) para los flujos críticos descritos en `docs/alcance-ux.md`.
-
 
 
 
